@@ -5,12 +5,13 @@
 #include <cstdlib>
 #include <iostream>
 #include <list>
+#include <map>
 #include <string>
 #include <vector>
 
 namespace Sif{
 namespace Utils{
-    void debug_info(std::string _info);
+    void debug_info(const std::string& _info);
 
     // trim string from left side
     void ltrim(std::string& _str);
@@ -39,6 +40,8 @@ namespace Utils{
 
     //from https://stackoverflow.com/questions/3418231/replace-part-of-a-string-with-another-string
     void str_replace_all(std::string& _str, const std::string& _from, const std::string& _to);
+
+    std::map<std::string, std::string> parse_visitor_args(const std::string& _args);
 }
 }
 

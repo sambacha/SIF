@@ -2,7 +2,7 @@
 
 namespace Sif{
 namespace Utils{
-    void debug_info(std::string _info) {
+    void debug_info(const std::string& _info) {
         if (std::getenv("SIF_DEBUG") != nullptr) {
             std::cerr << "[SIF_DEBUG_INFO]" << _info << "\n";
         }
@@ -95,5 +95,19 @@ namespace Utils{
             start_pos += _to.length(); // In case 'to' contains 'from', like replacing 'x' with 'yx'
         }
     }
+
+    std::map<std::string, std::string> parse_visitor_args(const std::string& _args) {
+        auto values = split(_args, " ");
+        std::map<std::string, std::string> result;
+        for (auto it = values.begin(); it != values.end(); ++it) {
+            auto pair = split(*it, "=");
+            if (pair.size() != 2) {
+                continue;
+            }
+            result[pair[0]] = pair[1];
+        }
+        return result;
+    }
+
 }
 }

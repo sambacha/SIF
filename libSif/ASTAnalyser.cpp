@@ -9,7 +9,7 @@
 
 namespace Sif{
 
-ASTAnalyser::ASTAnalyser(std::stringstream& _ast_sstream, nlohmann::json& _jsonast, bool single_file, std::string file_name) {
+ASTAnalyser::ASTAnalyser(std::stringstream& _ast_sstream, nlohmann::json& _jsonast, const bool& single_file, const std::string& file_name, const std::string& _visitor_arg) {
     std::string new_line;
     while (std::getline(_ast_sstream, new_line)) {
         //Utils::trim(new_line);
@@ -21,17 +21,23 @@ ASTAnalyser::ASTAnalyser(std::stringstream& _ast_sstream, nlohmann::json& _jsona
     ast_json = _jsonast;
     ptr_ast_line = ast_lines.begin();
     num_functions_current_contract = 0;
+    visitor_arg = _visitor_arg;
 
     if (single_file) {
         while (Utils::substr_by_edge(*ptr_ast_line, "======= ", " =======") != file_name) {
             ++ptr_ast_line;
         }
     }
+    do_not_produce_source = false;
 }
 
-std::stringstream ASTAnalyser::analyse() {
-    before();
-    std::stringstream result;
+void ASTAnalyser::set_do_not_produce_source(bool _do_not_produce_source) {
+    do_not_produce_source = _do_not_produce_source;
+}
+
+RootNodePtr ASTAnalyser::analyse() {
+    before(visitor_arg);
+    std::stringstream import, pragma;
     std::string line;
     while (ptr_ast_line != ast_lines.end()) {
         std::string keyword = Utils::retrieve_string_element(*ptr_ast_line, 0, " ");
@@ -42,14 +48,14 @@ std::stringstream ASTAnalyser::analyse() {
             get_next_token(TokenSource);
             line = Utils::substr_by_edge(*ptr_ast_line, "Source: \"", "\"");
             remove_escapes(line);
-            result << line << "\n";
+            pragma << line;
         } else if (keyword == TokenImportDirective ) {
             // same as TokenPragmaDirective
             // using original source
             get_next_token(TokenSource);
             line = Utils::substr_by_edge(*ptr_ast_line, "Source: \"", "\"");
             remove_escapes(line); 
-            result << line << "\n";
+            import << line;
         } else if (keyword == TokenContractDefinition ) {
             std::string contract_name = Utils::retrieve_string_element(*ptr_ast_line, 1, " ");
             contract_name = Utils::substr_by_edge(contract_name, "\"", "\"");
@@ -60,7 +66,7 @@ std::stringstream ASTAnalyser::analyse() {
             current_contract_name = contract_name;
             get_next_token(TokenSource);
             line = Utils::substr_by_edge(*ptr_ast_line, "Source: \"", "\"");
-            if (line.find("library") == 0) {
+            if (line.find("library") != std::string::npos) {
                 current_contract->set_as_library();
             }
         } else if (keyword == TokenInheritanceSpecifier ) {
@@ -179,11 +185,11 @@ std::stringstream ASTAnalyser::analyse() {
         } else if (keyword == TokenFunctionTypeName ) {
             // not handled at top level
         } else if (keyword == TokenMapping ) {
-
+            // not handled at top level
         } else if (keyword == TokenArrayTypeName ) {
             // not handled at top level
         } else if (keyword == TokenInlineAssembly ) {
-
+            // not handled at top level
         } else if (keyword == TokenBlock ) {
             BlockNodePtr block_node = handle_block();
             current_contract->add_member(block_node);
@@ -242,14 +248,24 @@ std::stringstream ASTAnalyser::analyse() {
     }
 
     Utils::debug_info("File processing finished");
-    Indentation indentation;
-    for (auto it_contract = contracts.begin(); it_contract != contracts.end(); ++it_contract) {
-        result << (*it_contract)->source_code(indentation);
-    }
 
-    Utils::debug_info("New code generated");
+    RootNodePtr ast_root = std::make_shared<RootNode>();
+    ast_root->set_import(import.str());
+    ast_root->set_pragma(pragma.str());
+
+    if (!do_not_produce_source) {
+        Indentation indentation;
+        for (auto it_contract = contracts.begin(); it_contract != contracts.end(); ++it_contract) {
+            ast_root->add_field(*it_contract);
+            // result << (*it_contract)->source_code(indentation);
+        }
+
+        Utils::debug_info("New code generated");
+    }
+    Sif::Indentation indentation;
+    ast_root->source_code(indentation);
     after();
-    return result;
+    return ast_root;
 }
 
 void ASTAnalyser::get_next_token(const std::string& token) {
@@ -281,8 +297,8 @@ std::string ASTAnalyser::get_next_token() {
 }
 
 void ASTAnalyser::remove_escapes(std::string& _str){
-    std::string double_quote = "\"";
-    std::string double_quote_es = "\\\"";
+    //std::string double_quote = "\"";
+    //std::string double_quote_es = "\\\"";
     Utils::str_replace_all(_str, "\\\"", "\"");
     Utils::str_replace_all(_str, "\\\'", "\'");
     Utils::str_replace_all(_str, "\\\\", "\\");
@@ -361,7 +377,7 @@ ParameterListNodePtr ASTAnalyser::handle_parameter_list() {
         parameters->add_parameter(var_decl);
         token = get_next_token();
     }
-    ptr_ast_line--; // if the token cannot enter while, it is outside the parameter list
+    --ptr_ast_line; // if the token cannot enter while, it is outside the parameter list
     return parameters;
 }
 
@@ -397,7 +413,7 @@ BlockNodePtr ASTAnalyser::handle_block() {
         }*/
         token = get_next_token();
     }
-    ptr_ast_line--;
+    --ptr_ast_line;
     return block;
 }
 
@@ -774,9 +790,9 @@ ASTNodePtr ASTAnalyser::get_type_name(std::string& token) {
         ASTNodePtr index = nullptr;
         //try to find out the index of the array
         int indentation = get_current_indentation();
-        std::string token = get_next_token();
-        if (token != "" && indentation < get_current_indentation()) {
-            index = get_value_equivalent_node(token);
+        std::string next_token = get_next_token();
+        if (next_token != "" && indentation < get_current_indentation()) {
+            index = get_value_equivalent_node(next_token);
         } else {
             --ptr_ast_line;
         } 
@@ -785,10 +801,10 @@ ASTNodePtr ASTAnalyser::get_type_name(std::string& token) {
         type_str = Utils::substr_by_edge(*ptr_ast_line, TokenUserDefinedTypeName + " \"", "\"");
         type_name = std::make_shared<UserDefinedTypeNameNode>(type_str);
     } else if (token == TokenMapping) {
-        std::string token = get_next_token();
-        ASTNodePtr key_type = get_type_name(token);
-        token = get_next_token();
-        ASTNodePtr value_type = get_type_name(token);
+        std::string next_token = get_next_token();
+        ASTNodePtr key_type = get_type_name(next_token);
+        next_token = get_next_token();
+        ASTNodePtr value_type = get_type_name(next_token);
         type_name = std::make_shared<MappingNode>(key_type, value_type);
     }
     return type_name;
@@ -799,8 +815,8 @@ ModifierInvocationNodePtr ASTAnalyser::handle_modifier_invocation() {
     modifier_name = Utils::substr_by_edge(modifier_name, "\"", "\"");
     ModifierInvocationNodePtr modifier_invocation = std::make_shared<ModifierInvocationNode>(modifier_name);
     int indentation = get_current_indentation();
-    std::string token = get_next_token(); // the token right after modifier invocation is an identifier token which is the name of the modifier
-    token = get_next_token();
+    get_next_token(); // the token right after modifier invocation is an identifier token which is the name of the modifier
+    std::string token = get_next_token();
     while (token != "" && indentation < get_current_indentation()) {
         ASTNodePtr subnode = get_value_equivalent_node(token);
         modifier_invocation->add_argument(subnode);
