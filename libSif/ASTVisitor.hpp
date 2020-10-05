@@ -9,4 +9,12 @@ namespace Sif {
     void after();
 }
 
+void visit(ASTNode* node) {
+    if (node->get_node_type() == NodeTypeFunctionDefinition) {
+        FunctionDefinitionNode* fd = (FunctionDefinitionNode*) node;
+        std::cout << fd->get_name();
+        fd->set_name("func");
+    }
+}
+
 #endif //SIF_LIBSIF_ASTVISITOR_H_
